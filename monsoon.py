@@ -13,6 +13,41 @@ from language_map import get_language_for_region, get_all_languages_for_region, 
 
 # Import our smart handler
 from smart_google_news_handler import smart_handler
+def extract_results_with_strict_date_filter(results, hazard_name, lang_code, start_date, end_date, disaster_terms):
+    filtered_entries = []
+
+    if 'entries' not in results:
+        return filtered_entries
+
+    for entry in results['entries']:
+        title = entry.get('title', '')
+        link = entry.get('link', '')
+        published = entry.get('published', '')
+        source = entry.get('source', {}).get('title', '')
+        summary = entry.get('summary', '')
+
+        try:
+            entry_date = datetime.strptime(published.split('T')[0], "%Y-%m-%d").date()
+        except:
+            continue
+
+        if not (start_date <= entry_date <= end_date):
+            continue
+
+        if not any(term.lower() in (title + summary).lower() for term in disaster_terms):
+            continue
+
+        filtered_entries.append([
+            title,
+            link,
+            entry_date.strftime("%Y-%m-%d"),
+            source,
+            summary,
+            hazard_name,
+            lang_code
+        ])
+
+    return filtered_entries
 
 def run_monsoon_script(target_date=None, days_back=0, single_state=None, 
                        hazard_name=None, locations_dict=None, keywords_dict=None):
