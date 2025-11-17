@@ -7,24 +7,51 @@ import pygooglenews
 import argparse
 import re
 import requests
+import json
 from bs4 import BeautifulSoup
 from language_map import get_language_for_region, get_all_languages_for_region, get_climate_impact_terms
 
 # Import our smart handler
 from smart_google_news_handler import smart_handler
 
-def run_monsoon_script(target_date=None, days_back=0, single_state=None):
+def run_monsoon_script(target_date=None, days_back=0, single_state=None, 
+                       hazard_name=None, locations_dict=None, keywords_dict=None):
     """
-    Run the monsoon script with STRICT date filtering for specified date range,
-    with improved multilingual support and enhanced content validation.
-    Enhanced with smart Google News handling to avoid rate limits.
+    Run the disaster extraction script with flexible parameters.
     
-    Args:
-        target_date (str): Date in YYYY-MM-DD format, if None uses current date
-        days_back (int): Number of days to look back from target_date (0 = target date only)
-        single_state (str): If provided, only process this single state/UT
+    NEW FLEXIBLE MODE:
+        hazard_name (str): Name of the hazard (e.g., "Cyclone", "Flood", "Heatwave")
+        locations_dict (dict): Nested dictionary with structure:
+            {
+              "State Name": {
+                "districts": {
+                  "District Name": ["City1", "City2", ...]
+                }
+              }
+            }
+        keywords_dict (dict): Keywords by language:
+            {
+              "en": ["keyword1", "keyword2", ...],
+              "hi": ["कीवर्ड1", "कीवर्ड2", ...]
+            }
+    
+    OLD MONSOON MODE (backward compatible):
+        target_date (str): Date in YYYY-MM-DD format
+        days_back (int): Number of days to look back
+        single_state (str): Process only this state
     """
     print("🧠 Initializing Smart Google News Handler...")
+    
+    # Determine operation mode
+    flexible_mode = all([hazard_name, locations_dict, keywords_dict])
+    
+    if flexible_mode:
+        print(f"🎯 FLEXIBLE MODE: Extracting {hazard_name} news")
+        print(f"📍 States: {list(locations_dict.keys())}")
+        print(f"🗣️  Keyword languages: {list(keywords_dict.keys())}")
+    else:
+        print(f"🌧️ LEGACY MODE: Extracting Monsoon news")
+        hazard_name = "Monsoon"  # Default for legacy mode
     
     # Set date range based on parameters
     ist = pytz.timezone('Asia/Kolkata')
@@ -41,55 +68,64 @@ def run_monsoon_script(target_date=None, days_back=0, single_state=None):
         print(f"🗓️ Using current date: {end_date}")
     
     start_date = end_date - timedelta(days=days_back)
-    
     print(f"🔍 STRICTLY filtering for articles between {start_date} and {end_date}")
     
     # Use broader search window but filter precisely afterward
     when_parameter = f'{max(days_back + 7, 7)}d'
     
-    # States and union territories
-    states = [
-        "andhra-pradesh", "arunachal-pradesh", "assam", "bihar", "chhattisgarh",
-        "goa", "gujarat", "haryana", "himachal-pradesh", "jharkhand", "karnataka",
-        "kerala", "madhya-pradesh", "maharashtra", "manipur", "meghalaya", "mizoram",
-        "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil-nadu", 
-        "telangana", "tripura", "uttar-pradesh", "uttarakhand", "west-bengal"
-    ]
-    union_territories = [
-        "andaman-and-nicobar-islands", "chandigarh", 
-        "dadra-and-nagar-haveli-and-daman-and-diu",
-        "lakshadweep", "delhi", "puducherry", 
-        "jammu-and-kashmir", "ladakh"
-    ]
-
-    # Filter to single state if specified
-    if single_state:
-        if single_state in states:
+    # Determine regions to process
+    if flexible_mode:
+        # Use locations from the provided dictionary
+        regions_to_process = list(locations_dict.keys())
+        print(f"🎯 Processing {len(regions_to_process)} states from locations dictionary")
+    elif single_state:
+        # Legacy single state mode
+        states = [
+            "andhra-pradesh", "arunachal-pradesh", "assam", "bihar", "chhattisgarh",
+            "goa", "gujarat", "haryana", "himachal-pradesh", "jharkhand", "karnataka",
+            "kerala", "madhya-pradesh", "maharashtra", "manipur", "meghalaya", "mizoram",
+            "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil-nadu", 
+            "telangana", "tripura", "uttar-pradesh", "uttarakhand", "west-bengal"
+        ]
+        union_territories = [
+            "andaman-and-nicobar-islands", "chandigarh", 
+            "dadra-and-nagar-haveli-and-daman-and-diu",
+            "lakshadweep", "delhi", "puducherry", 
+            "jammu-and-kashmir", "ladakh"
+        ]
+        
+        if single_state in states or single_state in union_territories:
             regions_to_process = [single_state]
-            print(f"🎯 Processing only state: {single_state.replace('-', ' ').title()}")
-        elif single_state in union_territories:
-            regions_to_process = [single_state]
-            print(f"🎯 Processing only union territory: {single_state.replace('-', ' ').title()}")
+            print(f"🎯 Processing only: {single_state.replace('-', ' ').title()}")
         else:
             print(f"❌ Invalid state/UT: {single_state}")
-            print("Available states:", ", ".join(states))
-            print("Available UTs:", ", ".join(union_territories))
             return
     else:
-        regions_to_process = states + union_territories
-
-    # Clean up existing files for the target date range to avoid duplication
-    cleanup_existing_files_for_date_range(start_date, end_date, single_state)
+        # Legacy all states mode
+        regions_to_process = [
+            "andhra-pradesh", "arunachal-pradesh", "assam", "bihar", "chhattisgarh",
+            "goa", "gujarat", "haryana", "himachal-pradesh", "jharkhand", "karnataka",
+            "kerala", "madhya-pradesh", "maharashtra", "manipur", "meghalaya", "mizoram",
+            "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil-nadu", 
+            "telangana", "tripura", "uttar-pradesh", "uttarakhand", "west-bengal",
+            "andaman-and-nicobar-islands", "chandigarh", 
+            "dadra-and-nagar-haveli-and-daman-and-diu",
+            "lakshadweep", "delhi", "puducherry", 
+            "jammu-and-kashmir", "ladakh"
+        ]
     
-    # Load newspaper database
+    # Clean up existing files for the target date range
+    cleanup_existing_files_for_date_range(start_date, end_date, single_state, hazard_name)
+    
+    # Load newspaper database (keeping this functionality)
     newspaper_db = load_newspaper_database()
     
-    # Process national-level sources only if not filtering to single state
-    if not single_state:
+    # Process national-level sources only if not filtering to single state (legacy mode only)
+    if not single_state and not flexible_mode:
         national_sources = get_national_newspapers(newspaper_db)
         national_entries = process_newspaper_sources(national_sources, "national", start_date, end_date)
         if national_entries:
-            save_national_results(national_entries, end_date)
+            save_national_results(national_entries, end_date, hazard_name)
 
     # Print smart handler initialization stats
     print("🧠 Smart Handler Status:")
@@ -98,14 +134,29 @@ def run_monsoon_script(target_date=None, days_back=0, single_state=None):
     print("   🎯 Query optimization enabled")
     print("   📊 Pattern learning active")
 
-    # Process each region with smart handling
+    # Process each region
     for region in regions_to_process:
-        region_name = region.replace("-", " ")
+        # Normalize region name for processing
+        if flexible_mode:
+            # Convert "State Name" to "state-name" format
+            region_slug = region.lower().replace(" ", "-")
+            region_name = region
+        else:
+            # Already in "state-name" format
+            region_slug = region
+            region_name = region.replace("-", " ")
+        
         print(f"\n===== Processing region: {region_name.title()} =====")
         
-        # Get all languages for this region
-        region_languages = get_all_languages_for_region(region)
-        print(f"Languages for this region: {', '.join(region_languages)}")
+        # Get languages for this region
+        if flexible_mode:
+            # Map state name to languages using language_map.py
+            region_languages = get_all_languages_for_region(region_slug)
+            print(f"Languages for this region: {', '.join(region_languages)}")
+        else:
+            # Legacy mode
+            region_languages = get_all_languages_for_region(region_slug)
+            print(f"Languages for this region: {', '.join(region_languages)}")
         
         all_region_entries = []
         
@@ -115,31 +166,52 @@ def run_monsoon_script(target_date=None, days_back=0, single_state=None):
         for lang_index, lang_code in enumerate(region_languages):
             print(f"\n--- Processing language: {lang_code} ({lang_index + 1}/{len(region_languages)}) ---")
             
-            # Get monsoon-specific terms for this language
-            monsoon_terms = get_climate_impact_terms(lang_code)
-            print(f"🌧️ Using {len(monsoon_terms)} monsoon terms for {lang_code}")
-            print(f"📝 Sample terms: {monsoon_terms[:3]}...")
+            # Get keywords for this language
+            if flexible_mode:
+                # Use provided keywords
+                disaster_terms = keywords_dict.get(lang_code, keywords_dict.get('en', []))
+                if not disaster_terms:
+                    print(f"⚠️ No keywords found for language {lang_code}, skipping")
+                    continue
+                print(f"🎯 Using {len(disaster_terms)} {hazard_name} terms for {lang_code}")
+            else:
+                # Legacy mode: use monsoon terms
+                disaster_terms = get_climate_impact_terms(lang_code)
+                print(f"🌧️ Using {len(disaster_terms)} monsoon terms for {lang_code}")
+            
+            print(f"📝 Sample terms: {disaster_terms[:3]}...")
             
             # Initialize Google News with this language
             gn = pygooglenews.GoogleNews(lang=lang_code, country='IN')
             
-            # Create comprehensive query strategies for better coverage
-            queries = create_smart_monsoon_queries(monsoon_terms, region_name, lang_code)
+            # Create queries
+            if flexible_mode:
+                # Create queries for flexible mode
+                queries = create_flexible_disaster_queries(
+                    disaster_terms, 
+                    region_name, 
+                    hazard_name,
+                    locations_dict.get(region, {}),
+                    lang_code
+                )
+            else:
+                # Legacy monsoon queries
+                queries = create_smart_monsoon_queries(disaster_terms, region_name, lang_code)
             
-            # Track query performance for this language
+            # Track query performance
             successful_queries = 0
             total_queries = len(queries)
             
             for query_index, query in enumerate(queries):
                 print(f"🔍 Query {query_index + 1}/{total_queries}: {query[:60]}{'...' if len(query) > 60 else ''} | Language: {lang_code}")
                 
-                # Use smart search with advanced error handling
+                # Use smart search
                 results = smart_handler.smart_search(
                     gn_instance=gn,
                     query=query,
                     when_parameter=when_parameter,
                     lang_code=lang_code,
-                    region=region,
+                    region=region_slug,
                     max_retries=4
                 )
                 
@@ -150,13 +222,13 @@ def run_monsoon_script(target_date=None, days_back=0, single_state=None):
                 total_articles = len(results['entries'])
                 print(f"✅ Found {total_articles} total articles for {region_name} in [{lang_code}]")
                 
-                # Extract with STRICT date filtering and enhanced content validation
+                # Extract with STRICT date filtering
                 entries = extract_results_with_strict_date_filter(
-                    results, "Monsoon", lang_code, start_date, end_date, monsoon_terms
+                    results, hazard_name, lang_code, start_date, end_date, disaster_terms
                 )
                 
                 filtered_count = len(entries)
-                print(f"📅 STRICTLY filtered to {filtered_count} relevant monsoon articles within date range")
+                print(f"📅 STRICTLY filtered to {filtered_count} relevant {hazard_name} articles within date range")
                 
                 if filtered_count > 0:
                     successful_queries += 1
@@ -168,7 +240,7 @@ def run_monsoon_script(target_date=None, days_back=0, single_state=None):
                 
                 # Smart inter-query delay
                 query_delay = smart_handler.adaptive_delay()
-                if query_index < total_queries - 1:  # Don't delay after last query
+                if query_index < total_queries - 1:
                     print(f"⏳ Smart delay: {query_delay:.1f}s before next query...")
                     time.sleep(query_delay)
             
@@ -176,31 +248,41 @@ def run_monsoon_script(target_date=None, days_back=0, single_state=None):
             success_rate = (successful_queries / total_queries * 100) if total_queries > 0 else 0
             print(f"📈 Language {lang_code} summary: {successful_queries}/{total_queries} queries successful ({success_rate:.1f}%)")
             
-            # Smart inter-language delay (longer between languages)
-            if lang_index < len(region_languages) - 1:  # Don't delay after last language
+            # Smart inter-language delay
+            if lang_index < len(region_languages) - 1:
                 print(f"⏳ Inter-language delay: {inter_language_delay:.1f}s...")
                 time.sleep(inter_language_delay)
             
-            # Check region-specific newspapers for this state
-            region_newspapers = get_regional_newspapers(newspaper_db, region)
+            # Check region-specific newspapers
+            region_newspapers = get_regional_newspapers(newspaper_db, region_slug)
             if region_newspapers:
                 additional_entries = process_newspaper_sources(
-                    region_newspapers, region, start_date, end_date
+                    region_newspapers, region_slug, start_date, end_date
                 )
                 if additional_entries:
                     all_region_entries.extend(additional_entries)
         
         # Save combined results for this region
         if all_region_entries:
-            region_type = 'states' if region in states else 'union-territories'
+            # Determine if this is a state or union territory
+            states = [
+                "andhra-pradesh", "arunachal-pradesh", "assam", "bihar", "chhattisgarh",
+                "goa", "gujarat", "haryana", "himachal-pradesh", "jharkhand", "karnataka",
+                "kerala", "madhya-pradesh", "maharashtra", "manipur", "meghalaya", "mizoram",
+                "nagaland", "odisha", "punjab", "rajasthan", "sikkim", "tamil-nadu", 
+                "telangana", "tripura", "uttar-pradesh", "uttarakhand", "west-bengal"
+            ]
+            region_type = 'states' if region_slug in states else 'union-territories'
+            
             save_results(
                 all_region_entries,
                 region_type,
-                region,
-                end_date
+                region_slug,
+                end_date,
+                hazard_name
             )
         else:
-            print(f"No monsoon articles found for {region_name}")
+            print(f"No {hazard_name} articles found for {region_name}")
         
         # Print smart handler statistics for this region
         stats = smart_handler.get_statistics()
@@ -221,10 +303,81 @@ def run_monsoon_script(target_date=None, days_back=0, single_state=None):
     # Cleanup sessions
     smart_handler.cleanup_sessions()
 
+def create_flexible_disaster_queries(disaster_terms, region_name, hazard_name, 
+                                     location_info, lang_code):
+    """
+    Create optimized queries for flexible disaster extraction.
+    
+    Args:
+        disaster_terms: List of keywords in the specified language
+        region_name: Name of the state/region
+        hazard_name: Name of the hazard (e.g., "Cyclone", "Flood")
+        location_info: Dictionary with districts and cities
+        lang_code: Language code
+    """
+    if not disaster_terms:
+        print(f"⚠️ No disaster terms found for language {lang_code}")
+        return [f"{hazard_name} {region_name}"]
+    
+    print(f"🔤 Creating SMART queries from {len(disaster_terms)} terms for {lang_code}")
+    
+    queries = []
+    
+    # Strategy 1: Hazard + Region (priority queries)
+    priority_terms = disaster_terms[:3]  # Top 3 terms
+    for i, term in enumerate(priority_terms):
+        if term.strip():
+            query = f'"{term}" {region_name}'
+            queries.append(query)
+            print(f"   Priority query {i+1}: {query}")
+    
+    # Strategy 2: Hazard + Districts (if available)
+    if 'districts' in location_info:
+        districts = list(location_info['districts'].keys())
+        for district in districts[:2]:  # Limit to 2 districts
+            if disaster_terms:
+                query = f'{disaster_terms[0]} {district}'
+                queries.append(query)
+                print(f"   District query: {query}")
+    
+    # Strategy 3: Combined impact terms
+    if len(disaster_terms) >= 3:
+        impact_query = f'({disaster_terms[0]} OR {disaster_terms[1]}) {region_name}'
+        queries.append(impact_query)
+        print(f"   Impact query: {impact_query}")
+    
+    # Strategy 4: Hazard name + primary terms (if different from disaster_terms)
+    if hazard_name.lower() not in ' '.join(disaster_terms[:5]).lower():
+        for term in disaster_terms[:2]:
+            query = f'{hazard_name} {term} {region_name}'
+            queries.append(query)
+            print(f"   Hazard+term query: {query}")
+    
+    # Limit total queries based on environment
+    is_local = os.environ.get('GITHUB_ACTIONS') != 'true'
+    if is_local:
+        queries = queries[:3]  # Very conservative for local
+    else:
+        queries = queries[:7]  # More for GitHub Actions
+    
+    # Optimize queries
+    optimized_queries = []
+    for query in queries:
+        if query.count('OR') <= 4 and len(query) <= 200:
+            optimized_queries.append(query)
+        else:
+            print(f"🔧 Skipping overly complex query: {query[:50]}...")
+    
+    print(f"📊 Created {len(optimized_queries)} optimized queries for {lang_code}")
+    return optimized_queries
+
+ # Helper functions for monsoon.py (continued)
+# Add these to the existing monsoon.py file
+
 def create_smart_monsoon_queries(monsoon_terms, region_name, lang_code):
     """
-    Create optimized queries using smart handler insights and patterns.
-    Reduces query volume and complexity to avoid rate limiting.
+    Create optimized queries for legacy monsoon mode.
+    This function is kept for backward compatibility.
     """
     if not monsoon_terms:
         print(f"⚠️ No monsoon terms found for language {lang_code}")
@@ -234,59 +387,52 @@ def create_smart_monsoon_queries(monsoon_terms, region_name, lang_code):
     
     queries = []
     
-    # Strategy 1: Start with individual high-impact terms (reduced from 5 to 3)
-    priority_terms = monsoon_terms[:3]  # Only top 3 terms
+    # Strategy 1: Priority terms
+    priority_terms = monsoon_terms[:3]
     for i, term in enumerate(priority_terms):
         if term.strip():
             query = f'"{term}" {region_name}'
             queries.append(query)
             print(f"   Priority query {i+1}: {query}")
     
-    # Strategy 2: Smart weather phenomena combination (simplified)
+    # Strategy 2: Weather phenomena
     if len(monsoon_terms) >= 3:
         weather_query = f'({monsoon_terms[0]} OR {monsoon_terms[1]}) {region_name}'
         queries.append(weather_query)
         print(f"   Weather query: {weather_query}")
     
-    # Strategy 3: Impact terms (reduced complexity)
+    # Strategy 3: Impact terms
     if len(monsoon_terms) >= 6:
-        impact_terms = monsoon_terms[3:6]  # Only 3 impact terms instead of 5
-        impact_query = f'({" OR ".join(impact_terms[:2])}) {region_name}'  # Only 2 terms
+        impact_terms = monsoon_terms[3:6]
+        impact_query = f'({" OR ".join(impact_terms[:2])}) {region_name}'
         queries.append(impact_query)
         print(f"   Impact query: {impact_query}")
     
-    # Strategy 4: Adaptive query count based on environment and success patterns
+    # Limit based on environment
     is_local = os.environ.get('GITHUB_ACTIONS') != 'true'
-    
     if is_local:
-        # Local testing - very conservative
-        print("🏠 Local mode: Using minimal query set to avoid rate limits")
-        queries = queries[:3]  # Only first 3 queries
+        queries = queries[:3]
     else:
-        # GitHub Actions - can be more aggressive but still smart
-        # Strategy 5: Health/infrastructure (only if we have enough terms)
         if len(monsoon_terms) >= 10:
-            health_terms = monsoon_terms[8:10]  # Only 2 health terms
+            health_terms = monsoon_terms[8:10]
             health_query = f'({" OR ".join(health_terms)}) {region_name}'
             queries.append(health_query)
             print(f"   Health query: {health_query}")
         
-        # Strategy 6: Broad search (simplified)
         if len(monsoon_terms) >= 8:
             broad_terms = [
-                monsoon_terms[0],    # main monsoon term
-                monsoon_terms[3] if len(monsoon_terms) > 3 else monsoon_terms[1],    # flood term
-                monsoon_terms[7] if len(monsoon_terms) > 7 else monsoon_terms[-1]    # last available term
+                monsoon_terms[0],
+                monsoon_terms[3] if len(monsoon_terms) > 3 else monsoon_terms[1],
+                monsoon_terms[7] if len(monsoon_terms) > 7 else monsoon_terms[-1]
             ]
             broad_query = f'({" OR ".join([term for term in broad_terms if term])}) {region_name}'
             queries.append(broad_query)
             print(f"   Broad query: {broad_query}")
     
-    # Smart query validation and optimization
+    # Optimize
     optimized_queries = []
     for query in queries:
-        # Skip overly complex queries that often get rate limited
-        if query.count('OR') <= 4 and len(query) <= 200:  # Reasonable complexity limits
+        if query.count('OR') <= 4 and len(query) <= 200:
             optimized_queries.append(query)
         else:
             print(f"🔧 Skipping overly complex query: {query[:50]}...")
@@ -294,621 +440,7 @@ def create_smart_monsoon_queries(monsoon_terms, region_name, lang_code):
     print(f"📊 Created {len(optimized_queries)} optimized queries for {lang_code}")
     return optimized_queries
 
-def load_newspaper_database():
-    """Load the newspaper database from CSV file"""
-    try:
-        df = pd.read_csv('list_of_newspaper_statewise  Sheet1.csv')
-        print(f"📰 Loaded {len(df)} newspapers from database")
-        return df
-    except FileNotFoundError:
-        print("⚠ Newspaper database file not found. Using fallback sources.")
-        return pd.DataFrame()
-
-def get_national_newspapers(newspaper_db):
-    """Get national-level newspapers from database"""
-    if newspaper_db.empty:
-        return []
-    
-    national_papers = newspaper_db[
-        newspaper_db['State/UT'].str.contains('National', na=False, case=False)
-    ]
-    
-    newspapers = []
-    for _, row in national_papers.iterrows():
-        newspapers.append({
-            'name': row['Newspaper Name'],
-            'website': row['Website'],
-            'language': row['Language(s)'],
-            'state': 'National'
-        })
-    
-    print(f"📰 Found {len(newspapers)} national newspapers")
-    return newspapers
-
-def get_regional_newspapers(newspaper_db, region):
-    """Get newspapers for a specific region from database"""
-    if newspaper_db.empty:
-        return []
-    
-    # Convert region format for matching
-    region_display = region.replace('-', ' ').title()
-    
-    # Try different matching strategies
-    matching_strategies = [
-        region_display,
-        region_display.replace('And', '&'),
-        region_display.split()[0] if ' ' in region_display else region_display,
-    ]
-    
-    # Special mappings for different naming conventions
-    region_mappings = {
-        'andaman-and-nicobar-islands': ['Andaman', 'Nicobar'],
-        'dadra-and-nagar-haveli-and-daman-and-diu': ['Dadra', 'Nagar Haveli', 'Daman', 'Diu'],
-        'jammu-and-kashmir': ['Jammu', 'Kashmir', 'J&K'],
-        'uttar-pradesh': ['Uttar Pradesh', 'UP'],
-        'madhya-pradesh': ['Madhya Pradesh', 'MP'],
-        'himachal-pradesh': ['Himachal Pradesh', 'HP'],
-        'arunachal-pradesh': ['Arunachal Pradesh'],
-        'west-bengal': ['West Bengal', 'Bengal'],
-    }
-    
-    if region in region_mappings:
-        matching_strategies.extend(region_mappings[region])
-    
-    regional_papers = pd.DataFrame()
-    for strategy in matching_strategies:
-        matches = newspaper_db[
-            newspaper_db['State/UT'].str.contains(strategy, na=False, case=False)
-        ]
-        if not matches.empty:
-            regional_papers = matches
-            break
-    
-    newspapers = []
-    for _, row in regional_papers.iterrows():
-        newspapers.append({
-            'name': row['Newspaper Name'],
-            'website': row['Website'],
-            'language': row['Language(s)'],
-            'state': row['State/UT']
-        })
-    
-    if newspapers:
-        print(f"📰 Found {len(newspapers)} newspapers for {region_display}")
-    
-    return newspapers
-
-def extract_results_with_strict_date_filter(results, term, lang_code, start_date, end_date, monsoon_terms):
-    """Extract results with extremely strict date filtering and enhanced monsoon content validation"""
-    extracted_entries = []
-    rejected_count = 0
-    content_rejected = 0
-    parse_error_count = 0
-    
-    for entry in results.get('entries', []):
-        title = entry.title
-        link = entry.link
-        
-        # Enhanced content validation: Check title for monsoon relevance
-        if not is_monsoon_content_relevant(title, monsoon_terms):
-            content_rejected += 1
-            continue
-        
-        # Extract date from URL first
-        url_date = extract_date_from_url(link)
-        
-        # Get publication date in IST
-        ist_date_str = convert_gmt_to_ist(entry.published)
-        
-        # Parse the IST datetime string with strict validation
-        try:
-            ist_dt = datetime.strptime(ist_date_str, "%Y-%m-%d %H:%M:%S")
-            article_date = ist_dt.date()
-            
-            # STRICT date filtering - only include articles within date range
-            if article_date < start_date or article_date > end_date:
-                # If URL date is available and within range, use that instead
-                if url_date and start_date <= url_date <= end_date:
-                    article_date = url_date
-                    ist_date_str = article_date.strftime("%Y-%m-%d") + " 12:00:00"
-                else:
-                    rejected_count += 1
-                    continue
-                    
-        except ValueError:
-            parse_error_count += 1
-            # Use URL date if available and within range
-            if url_date and start_date <= url_date <= end_date:
-                article_date = url_date
-                ist_date_str = article_date.strftime("%Y-%m-%d") + " 12:00:00"
-            else:
-                # Skip if we can't determine a valid date
-                continue
-
-        # Get summary and validate content relevance
-        summary = entry.summary if hasattr(entry, 'summary') else ""
-        combined_text = f"{title} {summary}"
-        
-        # Final content validation with combined title and summary
-        if not is_monsoon_content_relevant(combined_text, monsoon_terms):
-            content_rejected += 1
-            continue
-
-        source = ""
-        if hasattr(entry, 'source') and hasattr(entry.source, 'title'):
-            source = entry.source.title
-
-        extracted_entries.append([title, link, ist_date_str, source, summary, term, lang_code])
-    
-    if rejected_count > 0 or content_rejected > 0 or parse_error_count > 0:
-        print(f"ℹ️ Rejected {rejected_count} articles outside date range, {content_rejected} not monsoon-relevant, {parse_error_count} with parsing errors")
-        
-    return extracted_entries
-
-def is_monsoon_content_relevant(text, monsoon_terms):
-    """Enhanced validation to check if content is genuinely monsoon-related using actual language terms"""
-    if not text or not monsoon_terms:
-        return False
-    
-    text_lower = text.lower()
-    
-    # Primary check: Must contain at least one monsoon term from our language map
-    monsoon_matches = sum(1 for term in monsoon_terms if term.lower() in text_lower)
-    if monsoon_matches == 0:
-        return False
-    
-    # Exclude clearly irrelevant content (keep this language-neutral)
-    irrelevant_patterns = [
-        'fashion', 'beauty', 'recipe', 'cooking', 'sports score', 'cricket', 'football',
-        'entertainment', 'celebrity', 'movie release', 'film', 'music album', 
-        'festival celebration', 'wedding', 'marriage ceremony', 'astrology', 'horoscope',
-        'stock market', 'share price', 'investment', 'real estate deal', 'property sale'
-    ]
-    
-    irrelevant_count = sum(1 for pattern in irrelevant_patterns if pattern in text_lower)
-    if irrelevant_count > 2:  # Multiple irrelevant indicators
-        return False
-    
-    # For non-English languages, be more lenient since we have specific terms
-    # If we found monsoon terms in local language, it's likely relevant
-    if monsoon_matches >= 1:
-        # Additional check: if we have multiple monsoon terms, it's very likely relevant
-        if monsoon_matches >= 2:
-            return True
-        
-        # Single monsoon term: check for additional context clues
-        # Look for generic weather/impact words that work across languages
-        context_indicators = [
-            'weather', 'government', 'alert', 'warning', 'rescue', 'relief', 'help',
-            'damage', 'affected', 'impact', 'water', 'river', 'road', 'house',
-            'people', 'area', 'district', 'village', 'city', 'state'
-        ]
-        
-        context_count = sum(1 for indicator in context_indicators if indicator in text_lower)
-        
-        # If we have monsoon terms + some context, it's likely relevant
-        return context_count >= 1
-    
-    return False
-
-def process_newspaper_sources(newspapers, region, start_date, end_date):
-    """Process newspaper websites intelligently for monsoon content with smart delays"""
-    entries = []
-    
-    for i, newspaper in enumerate(newspapers):
-        try:
-            print(f"Checking newspaper: {newspaper['name']} ({newspaper['language']})")
-            website = newspaper['website']
-            
-            # Skip invalid URLs
-            if not website or not website.startswith(('http://', 'https://')):
-                continue
-            
-            # Smart delay between newspaper requests
-            if i > 0:
-                delay = smart_handler.adaptive_delay() * 0.5  # Shorter delay for newspapers
-                time.sleep(delay)
-            
-            response = requests.get(website, headers={
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-            }, timeout=15)
-            
-            if response.status_code != 200:
-                print(f"Failed to access {website}: Status code {response.status_code}")
-                continue
-                
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # Get language-specific monsoon terms
-            newspaper_lang = map_newspaper_language_to_code(newspaper['language'])
-            monsoon_terms = get_climate_impact_terms(newspaper_lang)
-            
-            # Find monsoon-related content using multiple strategies
-            monsoon_links = find_smart_monsoon_content(soup, website, monsoon_terms)
-            
-            print(f"Found {len(monsoon_links)} potential monsoon articles on {newspaper['name']}")
-            
-            # Process each link with validation (limited to prevent overload)
-            for link in monsoon_links[:4]:  # Reduced from 6 to 4 articles per newspaper
-                try:
-                    article_data = extract_and_validate_newspaper_article(
-                        link, start_date, end_date, monsoon_terms, newspaper['name']
-                    )
-                    if article_data:
-                        entries.append(article_data)
-                        print(f"Added monsoon article: {article_data[0][:60]}...")
-                
-                except Exception as e:
-                    print(f"Error processing article {link}: {e}")
-                    
-                # Brief pause between articles
-                time.sleep(1)
-            
-        except Exception as e:
-            print(f"Error checking newspaper {newspaper['name']}: {e}")
-    
-    return entries
-
-# Include all the remaining functions from your original monsoon.py
-def map_newspaper_language_to_code(language_str):
-    """Map newspaper language string to language code"""
-    language_mapping = {
-        'english': 'en', 'hindi': 'hi', 'tamil': 'ta', 'telugu': 'te',
-        'malayalam': 'ml', 'kannada': 'kn', 'bengali': 'bn', 'gujarati': 'gu',
-        'marathi': 'mr', 'odia': 'or', 'punjabi': 'pa', 'assamese': 'as',
-        'urdu': 'ur', 'nepali': 'ne', 'khasi': 'en', 'meitei': 'en', 'mizo': 'en'
-    }
-    
-    if not language_str:
-        return 'en'
-    
-    lang_lower = language_str.lower()
-    for lang_name, code in language_mapping.items():
-        if lang_name in lang_lower:
-            return code
-    
-    return 'en'  # Default to English
-
-def find_smart_monsoon_content(soup, base_url, monsoon_terms):
-    """Intelligently find monsoon-related content without assuming specific sections"""
-    links = set()
-    
-    # Strategy 1: Look for links with monsoon-related text
-    for a in soup.find_all('a', href=True):
-        href = a['href']
-        link_text = a.get_text().strip().lower()
-        
-        # Make relative URLs absolute
-        if href.startswith('/'):
-            base_domain = '/'.join(base_url.split('/')[:3])
-            href = base_domain + href
-        elif not href.startswith(('http://', 'https://')):
-            continue
-        
-        # Skip non-article content
-        if any(skip in href.lower() for skip in ['.jpg', '.png', '.pdf', '.mp4', 'facebook.com', 'twitter.com', 'instagram.com']):
-            continue
-        
-        # Check if link text contains monsoon terms
-        if any(term.lower() in link_text for term in monsoon_terms[:8]):  # Check top 8 terms
-            links.add(href)
-            continue
-        
-        # Check href for weather/monsoon keywords
-        if any(keyword in href.lower() for keyword in ['weather', 'rain', 'flood', 'monsoon', 'storm']):
-            links.add(href)
-            continue
-        
-        # Check surrounding context (parent element text)
-        parent = a.parent
-        if parent:
-            context = parent.get_text().lower()
-            if any(term.lower() in context for term in monsoon_terms[:5]):
-                links.add(href)
-    
-    # Strategy 2: Look for articles in news/weather sections
-    news_sections = soup.find_all(['div', 'section'], class_=re.compile(r'news|weather|local|state|national', re.I))
-    for section in news_sections:
-        section_links = section.find_all('a', href=True)
-        for a in section_links:
-            href = a['href']
-            if href.startswith('/'):
-                base_domain = '/'.join(base_url.split('/')[:3])
-                href = base_domain + href
-            elif not href.startswith(('http://', 'https://')):
-                continue
-                
-            # Add links from news sections that might contain relevant content
-            if 'article' in href.lower() or 'news' in href.lower():
-                links.add(href)
-    
-    # Strategy 3: Look for recent articles (today's date in URL)
-    today_patterns = [
-        datetime.now().strftime('%Y/%m/%d'),
-        datetime.now().strftime('%Y-%m-%d'),
-        datetime.now().strftime('%Y%m%d')
-    ]
-    
-    for a in soup.find_all('a', href=True):
-        href = a['href']
-        if any(pattern in href for pattern in today_patterns):
-            if href.startswith('/'):
-                base_domain = '/'.join(base_url.split('/')[:3])
-                href = base_domain + href
-            elif href.startswith(('http://', 'https://')):
-                links.add(href)
-    
-    return list(links)
-
-def extract_and_validate_newspaper_article(url, start_date, end_date, monsoon_terms, newspaper_name):
-    """Extract and validate newspaper article for monsoon relevance"""
-    try:
-        response = requests.get(url, headers={
-            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
-        }, timeout=15)
-        
-        if response.status_code != 200:
-            return None
-            
-        soup = BeautifulSoup(response.text, 'html.parser')
-        
-        # Extract title with multiple fallback strategies
-        title = extract_article_title(soup)
-        if not title or not is_monsoon_content_relevant(title, monsoon_terms):
-            return None
-        
-        # Extract and validate date
-        article_date = extract_article_date_enhanced(soup, url)
-        if not article_date or article_date < start_date or article_date > end_date:
-            return None
-        
-        # Extract summary/content for final validation
-        summary = extract_article_summary_enhanced(soup)
-        
-        # Final comprehensive relevance check
-        combined_text = f"{title} {summary}"
-        if not is_monsoon_content_relevant(combined_text, monsoon_terms):
-            return None
-        
-        # Detect language
-        lang_code = detect_language_from_text(combined_text)
-        
-        date_str = article_date.strftime("%Y-%m-%d %H:%M:%S")
-        
-        return [title, url, date_str, newspaper_name, summary[:200], "Monsoon", lang_code]
-        
-    except Exception as e:
-        print(f"Error extracting article from {url}: {e}")
-        return None
-
-def extract_article_title(soup):
-    """Extract article title with multiple strategies"""
-    # Strategy 1: Look for h1 tags
-    h1_tags = soup.find_all('h1')
-    for h1 in h1_tags:
-        text = h1.get_text().strip()
-        if len(text) > 10 and len(text) < 200:  # Reasonable title length
-            return text
-    
-    # Strategy 2: Look for title tag
-    title_tag = soup.find('title')
-    if title_tag:
-        text = title_tag.get_text().strip()
-        # Clean common title suffixes
-        for suffix in [' - Times of India', ' | The Hindu', ' - News18', ' | NDTV']:
-            if text.endswith(suffix):
-                text = text[:-len(suffix)]
-        if len(text) > 10:
-            return text
-    
-    # Strategy 3: Look for meta property title
-    meta_title = soup.find('meta', property='og:title')
-    if meta_title and meta_title.get('content'):
-        return meta_title['content'].strip()
-    
-    return None
-
-def extract_article_date_enhanced(soup, url):
-    """Enhanced date extraction with multiple fallback strategies"""
-    # Strategy 1: Try URL date first (most reliable)
-    url_date = extract_date_from_url(url)
-    if url_date:
-        return url_date
-    
-    # Strategy 2: Meta tags
-    meta_selectors = [
-        'meta[property="article:published_time"]',
-        'meta[name="publishdate"]',
-        'meta[name="date"]',
-        'meta[property="og:updated_time"]'
-    ]
-    
-    for selector in meta_selectors:
-        meta_tag = soup.select_one(selector)
-        if meta_tag and meta_tag.get('content'):
-            try:
-                # Handle ISO format dates
-                date_str = meta_tag['content']
-                if 'T' in date_str:
-                    date_str = date_str.split('T')[0]
-                return datetime.strptime(date_str, '%Y-%m-%d').date()
-            except ValueError:
-                continue
-    
-    # Strategy 3: Look for date in common CSS classes
-    date_selectors = [
-        '.publish-date', '.article-date', '.date', '.timestamp',
-        '[class*="date"]', '[class*="time"]', '.byline-date'
-    ]
-    
-    for selector in date_selectors:
-        date_elem = soup.select_one(selector)
-        if date_elem:
-            date_text = date_elem.get_text().strip()
-            parsed_date = parse_date_string_enhanced(date_text)
-            if parsed_date:
-                return parsed_date
-    
-    # Strategy 4: Look for date patterns in article text
-    article_text = soup.get_text()
-    date_patterns = [
-        r'(\d{1,2}\s+[A-Za-z]+\s+\d{4})',  # 15 March 2024
-        r'([A-Za-z]+\s+\d{1,2},\s+\d{4})',  # March 15, 2024
-        r'(\d{4}-\d{2}-\d{2})',             # 2024-03-15
-        r'(\d{1,2}/\d{1,2}/\d{4})'          # 15/03/2024
-    ]
-    
-    for pattern in date_patterns:
-        match = re.search(pattern, article_text)
-        if match:
-            parsed_date = parse_date_string_enhanced(match.group(1))
-            if parsed_date:
-                return parsed_date
-    
-    return None
-
-def extract_article_summary_enhanced(soup):
-    """Extract article summary with enhanced strategies"""
-    # Strategy 1: Meta description
-    meta_desc = soup.find('meta', attrs={'name': 'description'})
-    if meta_desc and 'content' in meta_desc.attrs:
-        content = meta_desc['content'].strip()
-        if len(content) > 50:
-            return content[:300]
-    
-    # Strategy 2: First substantial paragraph
-    paragraphs = soup.find_all('p')
-    for p in paragraphs:
-        text = p.get_text().strip()
-        if len(text) > 50 and not any(skip in text.lower() for skip in ['cookie', 'subscribe', 'follow us']):
-            return text[:300]
-    
-    # Strategy 3: Article lead or summary class
-    summary_selectors = [
-        '.article-summary', '.lead', '.excerpt', '.description',
-        '[class*="summary"]', '[class*="lead"]'
-    ]
-    
-    for selector in summary_selectors:
-        elem = soup.select_one(selector)
-        if elem:
-            text = elem.get_text().strip()
-            if len(text) > 50:
-                return text[:300]
-    
-    return ""
-
-def parse_date_string_enhanced(date_str):
-    """Parse various date string formats with enhanced support"""
-    if not date_str:
-        return None
-        
-    # Clean the date string
-    date_str = re.sub(r'[^\w\s\-:/,]', '', date_str).strip()
-    
-    date_formats = [
-        '%Y-%m-%d', '%d-%m-%Y', '%m/%d/%Y', '%d/%m/%Y',
-        '%B %d, %Y', '%d %B %Y', '%b %d, %Y', '%d %b %Y',
-        '%Y-%m-%d %H:%M:%S', '%d-%m-%Y %H:%M:%S',
-        '%d %B, %Y', '%B %d %Y', '%d %b, %Y'
-    ]
-    
-    for fmt in date_formats:
-        try:
-            return datetime.strptime(date_str, fmt).date()
-        except ValueError:
-            continue
-    
-    # Try parsing relative dates like "2 days ago"
-    if 'ago' in date_str.lower():
-        today = datetime.now().date()
-        if 'today' in date_str.lower() or '0 day' in date_str.lower():
-            return today
-        elif 'yesterday' in date_str.lower() or '1 day' in date_str.lower():
-            return today - timedelta(days=1)
-        elif '2 day' in date_str.lower():
-            return today - timedelta(days=2)
-    
-    return None
-
-def detect_language_from_text(text):
-    """Simple language detection based on character frequency"""
-    if not text or len(text) < 50:
-        return "en"
-        
-    # Count characters in different scripts
-    devanagari = sum(1 for c in text if '\u0900' <= c <= '\u097F')
-    bengali = sum(1 for c in text if '\u0980' <= c <= '\u09FF')
-    tamil = sum(1 for c in text if '\u0B80' <= c <= '\u0BFF')
-    telugu = sum(1 for c in text if '\u0C00' <= c <= '\u0C7F')
-    kannada = sum(1 for c in text if '\u0C80' <= c <= '\u0CFF')
-    malayalam = sum(1 for c in text if '\u0D00' <= c <= '\u0D7F')
-    gujarati = sum(1 for c in text if '\u0A80' <= c <= '\u0AFF')
-    punjabi = sum(1 for c in text if '\u0A00' <= c <= '\u0A7F')
-    
-    total_len = len(text)
-    scripts = {
-        "hi": devanagari, "bn": bengali, "ta": tamil, "te": telugu,
-        "kn": kannada, "ml": malayalam, "gu": gujarati, "pa": punjabi
-    }
-    
-    # If the text has significant non-Latin characters, identify the script
-    for lang, count in scripts.items():
-        if count > total_len * 0.15:  # If script represents over 15% of text
-            return lang
-    
-    return "en"
-
-def extract_date_from_url(url):
-    """Try to extract date from URL patterns commonly found in news sites"""
-    patterns = [
-        r'/(\d{4})/(\d{1,2})/(\d{1,2})/',  # /2024/3/3/
-        r'/(\d{4})-(\d{1,2})-(\d{1,2})/',  # /2024-3-3/
-        r'(\d{4})(\d{2})(\d{2})',          # 20240303
-        r'article(\d{8})',                 # article20240303
-        r'/(\d{2})-(\d{2})-(\d{4})/',      # /15-03-2024/
-        r'/(\d{2})(\d{2})(\d{4})/',        # /15032024/
-        r'/news/(\d{4})/(\d{1,2})/(\d{1,2})/', # /news/2024/3/15/
-        r'(\d{1,2})_(\d{1,2})_(\d{4})',    # 15_03_2024
-        r'-(\d{4})(\d{2})(\d{2})-',        # -20240315-
-    ]
-    
-    for pattern in patterns:
-        match = re.search(pattern, url)
-        if match:
-            try:
-                groups = match.groups()
-                
-                if len(groups) == 1:  # Single group like 20240315
-                    date_str = groups[0]
-                    if len(date_str) == 8:
-                        year = int(date_str[:4])
-                        month = int(date_str[4:6])
-                        day = int(date_str[6:8])
-                    else:
-                        continue
-                elif len(groups[0]) == 4:  # Year first
-                    year = int(groups[0])
-                    month = int(groups[1])
-                    day = int(groups[2])
-                elif len(groups[2]) == 4:  # Year last
-                    day = int(groups[0])
-                    month = int(groups[1])
-                    year = int(groups[2])
-                else:
-                    continue
-                
-                # Validate date components
-                if year < 2000 or year > 2030 or month < 1 or month > 12 or day < 1 or day > 31:
-                    continue
-                    
-                return datetime(year, month, day).date()
-            except (ValueError, IndexError):
-                continue
-    
-    return None
-
-def cleanup_existing_files_for_date_range(start_date, end_date, single_state=None):
+def cleanup_existing_files_for_date_range(start_date, end_date, single_state=None, hazard_name="Monsoon"):
     """Remove existing files for the date range to avoid duplication"""
     base_path = "data"
     current_date = start_date
@@ -942,7 +474,7 @@ def cleanup_existing_files_for_date_range(start_date, end_date, single_state=Non
             else:
                 continue
                 
-            path = f"{base_path}/{region_type}/{single_state}/Monsoon/{year}/{month:02d}/{day:02d}"
+            path = f"{base_path}/{region_type}/{single_state}/{hazard_name}/{year}/{month:02d}/{day:02d}"
             if os.path.exists(path):
                 for file in os.listdir(path):
                     if file.endswith('.csv'):
@@ -953,7 +485,7 @@ def cleanup_existing_files_for_date_range(start_date, end_date, single_state=Non
                         except Exception as e:
                             print(f"Error deleting {file_path}: {e}")
         else:
-            # Clean up all regions (original behavior)
+            # Clean up all regions
             regions_info = [
                 ("states", [
                     "andhra-pradesh", "arunachal-pradesh", "assam", "bihar", "chhattisgarh",
@@ -973,7 +505,7 @@ def cleanup_existing_files_for_date_range(start_date, end_date, single_state=Non
             
             for region_type, regions in regions_info:
                 for region_name in regions:
-                    path = f"{base_path}/{region_type}/{region_name}/Monsoon/{year}/{month:02d}/{day:02d}"
+                    path = f"{base_path}/{region_type}/{region_name}/{hazard_name}/{year}/{month:02d}/{day:02d}"
                     if os.path.exists(path):
                         for file in os.listdir(path):
                             if file.endswith('.csv'):
@@ -989,12 +521,12 @@ def cleanup_existing_files_for_date_range(start_date, end_date, single_state=Non
     if deleted_count > 0:
         print(f"🧹 Cleaned up {deleted_count} existing files for date range")
 
-def save_results(all_entries, region_type, region_name, current_date):
-    """Save results to CSV file"""
+def save_results(all_entries, region_type, region_name, current_date, hazard_name="Monsoon"):
+    """Save results to CSV file with hazard-specific path"""
     if not all_entries:
         return
 
-    path = f"data/{region_type}/{region_name}/Monsoon/{current_date.year}/{current_date.strftime('%m')}/{current_date.strftime('%d')}"
+    path = f"data/{region_type}/{region_name}/{hazard_name}/{current_date.year}/{current_date.strftime('%m')}/{current_date.strftime('%d')}"
     os.makedirs(path, exist_ok=True)
     file_path = os.path.join(path, 'results.csv')
 
@@ -1015,14 +547,14 @@ def save_results(all_entries, region_type, region_name, current_date):
         df = df.drop(columns=['_DateCheck'])
         
     df.to_csv(file_path, mode='w', header=True, index=False)
-    print(f"✅ CSV created for Monsoon in {region_name} with {len(df)} articles")
+    print(f"✅ CSV created for {hazard_name} in {region_name} with {len(df)} articles")
 
-def save_national_results(all_entries, current_date):
-    """Save national-level results"""
+def save_national_results(all_entries, current_date, hazard_name="Monsoon"):
+    """Save national-level results with hazard-specific path"""
     if not all_entries:
         return
 
-    path = f"data/national/all/Monsoon/{current_date.year}/{current_date.strftime('%m')}/{current_date.strftime('%d')}"
+    path = f"data/national/all/{hazard_name}/{current_date.year}/{current_date.strftime('%m')}/{current_date.strftime('%d')}"
     os.makedirs(path, exist_ok=True)
     file_path = os.path.join(path, 'results.csv')
 
@@ -1043,26 +575,44 @@ def save_national_results(all_entries, current_date):
         df = df.drop(columns=['_DateCheck'])
         
     df.to_csv(file_path, mode='w', header=True, index=False)
-    print(f"✅ CSV created for national Monsoon articles with {len(df)} articles")
+    print(f"✅ CSV created for national {hazard_name} articles with {len(df)} articles")
 
-def convert_gmt_to_ist(gmt_datetime):
-    """Convert GMT datetime to IST"""
-    try:
-        gmt_format = "%a, %d %b %Y %H:%M:%S %Z"
-        gmt = pytz.timezone('GMT')
-        ist = pytz.timezone('Asia/Kolkata')
-        gmt_dt = datetime.strptime(gmt_datetime, gmt_format)
-        gmt_dt = gmt.localize(gmt_dt)
-        return gmt_dt.astimezone(ist).strftime("%Y-%m-%d %H:%M:%S")
-    except ValueError:
-        return gmt_datetime
+# Keep all the existing helper functions from the original monsoon.py:
+# - load_newspaper_database()
+# - get_national_newspapers()
+# - get_regional_newspapers()
+# - extract_results_with_strict_date_filter()
+# - is_monsoon_content_relevant() -> Rename to is_disaster_content_relevant()
+# - process_newspaper_sources()
+# - map_newspaper_language_to_code()
+# - find_smart_monsoon_content()
+# - extract_and_validate_newspaper_article()
+# - extract_article_title()
+# - extract_article_date_enhanced()
+# - extract_article_summary_enhanced()
+# - parse_date_string_enhanced()
+# - detect_language_from_text()
+# - extract_date_from_url()
+# - convert_gmt_to_ist()
+
+# NOTE: Keep ALL the existing helper functions from the original monsoon.py file.
+# Only the functions above were modified or added.
+
+# Add this to the end of monsoon.py (replacing the existing __main__ block)
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description='Run smart monsoon news article collection script with advanced rate limiting')
+    parser = argparse.ArgumentParser(description='Run flexible disaster news article collection script')
+    
+    # Original parameters (backward compatibility)
     parser.add_argument('--date', type=str, help='Target date in YYYY-MM-DD format (default: current date)')
     parser.add_argument('--days-back', type=int, default=0, help='Number of days to look back from target date (default: 0)')
     parser.add_argument('--state', type=str, help='Process only this single state/UT (e.g., kerala, maharashtra, delhi)')
     parser.add_argument('--reset-smart-handler', action='store_true', help='Reset smart handler state for fresh start')
+    
+    # NEW PARAMETERS for flexible disaster extraction
+    parser.add_argument('--hazard-name', type=str, help='Name of the hazard/disaster (e.g., "Cyclone", "Flood", "Heatwave")')
+    parser.add_argument('--locations-json', type=str, help='JSON string with nested locations dictionary')
+    parser.add_argument('--keywords-json', type=str, help='JSON string with language-specific keywords dictionary')
     
     args = parser.parse_args()
     
@@ -1070,39 +620,118 @@ if __name__ == "__main__":
         smart_handler.reset_state()
         print("🔄 Smart handler state reset")
     
-    print("🌧️ Starting Smart Monsoon News Collection")
-    print(f"📅 Target date: {args.date if args.date else 'Current date'}")
-    print(f"📅 Days back: {args.days_back}")
-    if args.state:
-        print(f"🎯 Single state mode: {args.state}")
+    # Determine operation mode
+    flexible_mode = all([args.hazard_name, args.locations_json, args.keywords_json])
     
-    try:
-        run_monsoon_script(target_date=args.date, days_back=args.days_back, single_state=args.state)
+    if flexible_mode:
+        print("🎯 Starting Flexible Disaster News Collection")
+        print(f"📋 Hazard: {args.hazard_name}")
         
-        # Print final smart handler statistics
-        print("\n🎯 Final Smart Handler Report:")
-        final_stats = smart_handler.get_statistics()
-        print(f"📊 Success rate: {final_stats['success_rate']:.1f}%")
-        print(f"🔄 Circuit breaker: {final_stats['circuit_breaker_state']}")
-        if final_stats['per_region_stats']:
-            print("📍 Top performing regions:")
-            region_stats = sorted(final_stats['per_region_stats'].items(), 
-                                key=lambda x: x[1]['success_rate'], reverse=True)[:5]
-            for region, stats in region_stats:
-                print(f"   {region}: {stats['success_rate']:.1f}% ({stats['requests']} requests)")
+        # Parse JSON inputs
+        try:
+            locations_dict = json.loads(args.locations_json)
+            keywords_dict = json.loads(args.keywords_json)
+            
+            print(f"📍 States: {list(locations_dict.keys())}")
+            print(f"🗣️  Keyword languages: {list(keywords_dict.keys())}")
+            
+            # Validate locations structure
+            for state, state_data in locations_dict.items():
+                if 'districts' not in state_data:
+                    print(f"⚠️ Warning: State '{state}' missing 'districts' key. Expected format:")
+                    print('  {"State": {"districts": {"District": ["City1", "City2"]}}}')
+            
+            # Validate keywords structure
+            if not keywords_dict:
+                print("❌ Keywords dictionary is empty!")
+                sys.exit(1)
+                
+        except json.JSONDecodeError as e:
+            print(f"❌ Invalid JSON format: {e}")
+            print("\n📋 Example locations format:")
+            print('  {"Telangana": {"districts": {"Warangal": ["Kazipet"], "Hyderabad": ["Hyderabad"]}}}')
+            print("\n📋 Example keywords format:")
+            print('  {"en": ["cyclone", "flood"], "hi": ["चक्रवात", "बाढ़"]}')
+            import sys
+            sys.exit(1)
         
-        print("✅ Smart Monsoon News Collection completed successfully!")
+        try:
+            run_monsoon_script(
+                target_date=args.date,
+                days_back=args.days_back,
+                single_state=None,  # Not used in flexible mode
+                hazard_name=args.hazard_name,
+                locations_dict=locations_dict,
+                keywords_dict=keywords_dict
+            )
+            
+            print("\n🎯 Final Smart Handler Report:")
+            final_stats = smart_handler.get_statistics()
+            print(f"📊 Success rate: {final_stats['success_rate']:.1f}%")
+            print(f"🔄 Circuit breaker: {final_stats['circuit_breaker_state']}")
+            if final_stats['per_region_stats']:
+                print("📍 Top performing regions:")
+                region_stats = sorted(final_stats['per_region_stats'].items(), 
+                                    key=lambda x: x[1]['success_rate'], reverse=True)[:5]
+                for region, stats in region_stats:
+                    print(f"   {region}: {stats['success_rate']:.1f}% ({stats['requests']} requests)")
+            
+            print(f"✅ Flexible Disaster News Collection completed successfully!")
+            
+        except KeyboardInterrupt:
+            print("\n⚠️ Collection interrupted by user")
+            print("🧠 Smart handler statistics at interruption:")
+            stats = smart_handler.get_statistics()
+            print(f"📊 Processed {stats['total_requests']} requests with {stats['success_rate']:.1f}% success rate")
+            smart_handler.cleanup_sessions()
+        except Exception as e:
+            print(f"❌ Error during collection: {e}")
+            import traceback
+            traceback.print_exc()
+            print("🧠 Smart handler final statistics:")
+            stats = smart_handler.get_statistics()
+            print(f"📊 Processed {stats['total_requests']} requests with {stats['success_rate']:.1f}% success rate")
+            smart_handler.cleanup_sessions()
+            raise
+    else:
+        # Legacy monsoon mode
+        print("🌧️ Starting Monsoon News Collection (Legacy Mode)")
+        print(f"📅 Target date: {args.date if args.date else 'Current date'}")
+        print(f"📅 Days back: {args.days_back}")
+        if args.state:
+            print(f"🎯 Single state mode: {args.state}")
         
-    except KeyboardInterrupt:
-        print("\n⚠️ Collection interrupted by user")
-        print("🧠 Smart handler statistics at interruption:")
-        stats = smart_handler.get_statistics()
-        print(f"📊 Processed {stats['total_requests']} requests with {stats['success_rate']:.1f}% success rate")
-        smart_handler.cleanup_sessions()
-    except Exception as e:
-        print(f"❌ Error during collection: {e}")
-        print("🧠 Smart handler final statistics:")
-        stats = smart_handler.get_statistics()
-        print(f"📊 Processed {stats['total_requests']} requests with {stats['success_rate']:.1f}% success rate")
-        smart_handler.cleanup_sessions()
-        raise
+        try:
+            run_monsoon_script(
+                target_date=args.date, 
+                days_back=args.days_back, 
+                single_state=args.state
+            )
+            
+            # Print final smart handler statistics
+            print("\n🎯 Final Smart Handler Report:")
+            final_stats = smart_handler.get_statistics()
+            print(f"📊 Success rate: {final_stats['success_rate']:.1f}%")
+            print(f"🔄 Circuit breaker: {final_stats['circuit_breaker_state']}")
+            if final_stats['per_region_stats']:
+                print("📍 Top performing regions:")
+                region_stats = sorted(final_stats['per_region_stats'].items(), 
+                                    key=lambda x: x[1]['success_rate'], reverse=True)[:5]
+                for region, stats in region_stats:
+                    print(f"   {region}: {stats['success_rate']:.1f}% ({stats['requests']} requests)")
+            
+            print("✅ Smart Monsoon News Collection completed successfully!")
+            
+        except KeyboardInterrupt:
+            print("\n⚠️ Collection interrupted by user")
+            print("🧠 Smart handler statistics at interruption:")
+            stats = smart_handler.get_statistics()
+            print(f"📊 Processed {stats['total_requests']} requests with {stats['success_rate']:.1f}% success rate")
+            smart_handler.cleanup_sessions()
+        except Exception as e:
+            print(f"❌ Error during collection: {e}")
+            print("🧠 Smart handler final statistics:")
+            stats = smart_handler.get_statistics()
+            print(f"📊 Processed {stats['total_requests']} requests with {stats['success_rate']:.1f}% success rate")
+            smart_handler.cleanup_sessions()
+            raise
