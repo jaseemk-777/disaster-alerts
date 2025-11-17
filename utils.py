@@ -1,10 +1,16 @@
-# utils.py - Monsoon Folder Creation
+# utils.py - Flexible Disaster Folder Creation (Updated)
 import os
+import argparse
 from datetime import datetime
 import calendar
 
-def create_folders():
-    """Create folder structure for monsoon news data storage"""
+def create_folders(hazard_name="Monsoon"):
+    """
+    Create folder structure for disaster news data storage.
+    
+    Args:
+        hazard_name: Name of the hazard/disaster (default: "Monsoon" for backward compatibility)
+    """
     base_path = 'data'
     
     # Indian states
@@ -24,13 +30,13 @@ def create_folders():
         "puducherry", "jammu-and-kashmir", "ladakh"
     ]
     
-    # Only create Monsoon folders
-    climate_events = ["Monsoon"]
+    # Use specified hazard name or default to Monsoon
+    climate_events = [hazard_name]
     year = datetime.now().year
     
-    print(f"📁 Creating folder structure for {year}...")
+    print(f"📁 Creating folder structure for {hazard_name} in {year}...")
     
-    # Create subfolders for each state/UT, Monsoon event, year, month, day
+    # Create subfolders for each state/UT, hazard event, year, month, day
     folder_count = 0
     
     for state in states:
@@ -65,9 +71,15 @@ def create_folders():
     for json_dir in json_output_dirs:
         os.makedirs(json_dir, exist_ok=True)
     
-    print(f"✅ Created {folder_count} monsoon data folders")
+    print(f"✅ Created {folder_count} {hazard_name} data folders")
     print(f"✅ Created JSON output directories")
     print(f"📊 Structure: {len(states)} states + {len(union_territories)} UTs + national")
 
 if __name__ == "__main__":
-    create_folders()
+    parser = argparse.ArgumentParser(description='Create folder structure for disaster news storage')
+    parser.add_argument('--hazard-name', type=str, default='Monsoon',
+                      help='Name of the hazard/disaster (default: Monsoon)')
+    
+    args = parser.parse_args()
+    
+    create_folders(hazard_name=args.hazard_name)
