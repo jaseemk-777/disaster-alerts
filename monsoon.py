@@ -370,6 +370,33 @@ def create_flexible_disaster_queries(disaster_terms, region_name, hazard_name,
     
     print(f"📊 Created {len(optimized_queries)} optimized queries for {lang_code}")
     return optimized_queries
+# ---------------------------------------------------------------------
+# FIXED FUNCTION: Load the newspaper database safely
+# ---------------------------------------------------------------------
+def load_newspaper_database():
+    """
+    Loads the newspaper database from CSV file
+    (list_of_newspaper_statewise - Sheet1.csv).
+
+    Returns a pandas DataFrame with state, district, newspaper_name, link, language.
+    """
+    import pandas as pd
+    import os
+
+    db_path = "list_of_newspaper_statewise - Sheet1.csv"
+
+    if not os.path.exists(db_path):
+        print(f"❌ Newspaper database not found at: {db_path}")
+        print("   Expected: list_of_newspaper_statewise - Sheet1.csv")
+        return None
+
+    try:
+        df = pd.read_csv(db_path)
+        print(f"✅ Loaded newspaper database with {len(df)} entries")
+        return df
+    except Exception as e:
+        print(f"❌ Failed to load newspaper database: {e}")
+        return None
 
  # Helper functions for monsoon.py (continued)
 # Add these to the existing monsoon.py file
