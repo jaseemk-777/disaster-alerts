@@ -1,0 +1,44 @@
+{
+  "disaster_id": "2025-cyclone-montha",
+  "start_date": "24/10/2025",
+  "end_date": "30/10/2025",
+  "hazard_names": {
+    "en": ["Cyclone Montha"]
+  },
+  "keywords": {
+    "en": [
+      "monsoon", "heavy rain", "cloudburst", "flood",
+      "flash flood", "waterlogging", "landslide",
+      "cyclone", "power outage", "pipeline burst"
+    ]
+  },
+  "locations": {
+    "Andhra Pradesh": {
+      "districts": {
+        "Visakhapatnam": ["Visakhapatnam"],
+        "East Godavari": ["Rajahmundry", "Kakinada"]
+      }
+    },
+    "Telangana": {
+      "districts": {
+        "Warangal": ["Kazipet"],
+        "Hyderabad": ["Hyderabad"]
+      }
+    }
+  },
+  "newspapers": {
+    "en": [
+      {
+        "name": "The Indian Express",
+        "link": "https://indianexpress.com/"
+      }
+    ]
+  },
+  "country_codes": [
+    "IN"
+  ],
+  "specific_links": [
+    "https://www.thehindu.com/news/national/west-bengal/weakened-cyclone-montha-to-bring-heavy-rains-in-parts-of-west-bengal/article70220159.ece",
+    "https://www.ndtv.com/india-news/cyclone-montha-live-updates-kakinada-cyclone-montha-to-cross-andhra-coast-today-heavy-rain-expected-odisha-machlipatnam-kalingapatnam-9527818"
+  ]
+}
