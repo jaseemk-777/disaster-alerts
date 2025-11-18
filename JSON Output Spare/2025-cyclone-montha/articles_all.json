@@ -1,0 +1,25 @@
+[
+  {
+    "id": "5c4e085731bafbebd6f9033f62db6a4a",
+    "title": "Weakened cyclone Montha to bring heavy rains in parts of West Bengal",
+    "final_url": "https://www.thehindu.com/news/national/west-bengal/weakened-cyclone-montha-to-bring-heavy-rains-in-parts-of-west-bengal/article70220159.ece",
+    "original_url": "https://www.thehindu.com/news/national/west-bengal/weakened-cyclone-montha-to-bring-heavy-rains-in-parts-of-west-bengal/article70220159.ece",
+    "normalized_url": "https://www.thehindu.com/news/national/west-bengal/weakened-cyclone-montha-to-bring-heavy-rains-in-parts-of-west-bengal/article70220159.ece",
+    "article_text": "Cyclone Montha, which has gradually weakened into a well-marked low-pressure area, will bring heavy rain in some districts of West Bengal till Saturday (November 1, 2025),” the IMD said.\n\n“The weather system, which is situated over south Chhattisgarh, is likely to move northwards towards east Madhya Pradesh and weaken further,” the India Meteorological Department said in a bulletin.\n\n“It is likely to bring heavy to very heavy rain (7-20 cm) at one or two places in the north Bengal districts of Darjeeling, Kalimpong, Jalpaiguri, Alipurduar and Cooch Behar and 7-11 cm precipitation in Malda, Uttar and Dakshin Dinajpur on Friday,” it said.\n\nHeavy rainfall is also likely in Alipurduar and Coochbehar on Saturday (November 1, 2025). The IMD warned that landslides may occur in the hilly areas of Darjeeling and Kalimpong districts, owing to the downpour.\n\n“The south Bengal districts of Birbhum, Murshidabad, Paschim Bardhaman and Purulia are also expected to receive heavy rainfall till Friday. “Light to moderate rain is likely over many places in the other south Bengal districts,” it added.",
+    "article_language": "en",
+    "metadata": {
+      "csv_date": "2025-10-30 00:00:00",
+      "csv_source": "thehindu.com",
+      "csv_summary": "Cyclone Montha weakens but will bring heavy rains to West Bengal, with potential landslides in hilly areas.",
+      "csv_language": "en",
+      "csv_hazard": "Cyclone Montha",
+      "csv_keyword": "specific_link",
+      "csv_location": NaN,
+      "csv_newspaper": NaN,
+      "query_type": "specific_link"
+    },
+    "disaster_id": "2025-cyclone-montha",
+    "extraction_timestamp": "2025-11-18 13:53:55",
+    "extraction_quality": "medium"
+  }
+]
